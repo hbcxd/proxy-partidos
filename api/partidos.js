@@ -1,20 +1,20 @@
-const admin = require('firebase-admin');
+const { initializeApp, getApps, cert } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
 
-// 1. Inicialización ultra-segura para evitar el error de "length"
-if (!admin.apps || admin.apps.length === 0) {
+// Inicialización segura con la API moderna de Firebase
+if (getApps().length === 0) {
   try {
     const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount)
+    initializeApp({
+      credential: cert(serviceAccount)
     });
   } catch (error) {
     console.error("Error al leer las credenciales:", error);
   }
 }
 
-const db = admin.firestore();
+const db = getFirestore();
 
-// 2. Lógica de la API
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
@@ -31,7 +31,7 @@ module.exports = async (req, res) => {
 
     res.status(200).json({ 
         success: true, 
-        message: "¡Proxy configurado con éxito! Dato guardado en la base de datos.",
+        message: "¡Proxy configurado con la nueva versión! Dato guardado.",
         id_documento: respuestaDb.id 
     });
 
