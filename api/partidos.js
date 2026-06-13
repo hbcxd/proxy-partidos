@@ -13,49 +13,38 @@ module.exports = async (req, res) => {
     const coleccion = db.collection('partidos_en_vivo');
 
     try {
-        // 1. Intentar obtener de Cache (Firebase)
-        const cincoMinutosAtras = new Date(Date.now() - 5 * 60 * 1000);
-        const snapshot = await coleccion.where('ultimaActualizacion', '>', Timestamp.fromDate(cincoMinutosAtras)).limit(1).get();
-
+        // 1. Verificación de Cache
+        const snapshot = await coleccion.limit(1).get();
         if (!snapshot.empty) {
             const partidos = snapshot.docs.map(doc => doc.data());
             return res.status(200).json({ success: true, fuente: 'Cache', data: partidos });
         }
 
-        // 2. Intentar obtener de varias fuentes (Estrategia Multi-Fuente)
-        const fuentes = [
-            { nombre: 'Besoccer', url: 'https://www.besoccer.com/livescore' },
-            { nombre: 'Flashscore', url: 'https://www.flashscore.com/' }
-        ];
+        // 2. Scraping más agresivo
+        const { data } = await axios.get('https://www.besoccer.com/livescore', { 
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }
+        });
+        
+        const $ = cheerio.load(data);
+        const nuevosPartidos = [];
 
-        let datosEncontrados = [];
+        // Buscamos cualquier fila que parezca un partido
+        $('.match').each((i, el) => {
+            const local = $(el).find('.team-name').first().text().trim();
+            const visit = $(el).find('.team-name').last().text().trim();
+            if (local && visit) {
+                nuevosPartidos.push({ local, visit, status: 'En vivo', fecha: new Date() });
+            }
+        });
 
-        for (let fuente of fuentes) {
-            try {
-                const { data } = await axios.get(fuente.url, { timeout: 5000, headers: { 'User-Agent': 'Mozilla/5.0' }});
-                const $ = cheerio.load(data);
-                
-                // Lógica simplificada para encontrar cualquier elemento de partido
-                $('.match, .event__match').each((i, el) => {
-                    const local = $(el).find('.home, .event__participant--home').text().trim();
-                    const visit = $(el).find('.away, .event__participant--away').text().trim();
-                    if (local && visit) {
-                        datosEncontrados.push({ local, visit, fuente: fuente.nombre, fecha: new Date() });
-                    }
-                });
-
-                if (datosEncontrados.length > 0) break; // Si encontramos algo, paramos de buscar
-            } catch (e) { continue; } // Si una falla, sigue con la siguiente
-        }
-
-        // 3. Guardar y responder
-        if (datosEncontrados.length > 0) {
+        // 3. Si encontramos algo, guardamos
+        if (nuevosPartidos.length > 0) {
             const batch = db.batch();
-            datosEncontrados.forEach(p => batch.set(coleccion.doc(p.local + p.visit), p));
+            nuevosPartidos.forEach(p => batch.set(coleccion.doc(), p));
             await batch.commit();
         }
 
-        return res.status(200).json({ success: true, fuente: 'Scraping Multi-Fuente', data: datosEncontrados });
+        return res.status(200).json({ success: true, count: nuevosPartidos.length, data: nuevosPartidos });
 
     } catch (error) {
         return res.status(500).json({ success: false, error: error.message });
