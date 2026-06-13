@@ -1,45 +1,59 @@
 const { initializeApp, getApps, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 
-// Inicialización segura con la API moderna de Firebase
-if (getApps().length === 0) {
-  try {
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    initializeApp({
-      credential: cert(serviceAccount)
-    });
-  } catch (error) {
-    console.error("Error al leer las credenciales:", error);
-  }
-}
-
-const db = getFirestore();
-
 module.exports = async (req, res) => {
+  // Configuración de cabeceras seguras
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
 
   try {
-    const partidoPrueba = {
-      local: "Navegantes del Magallanes",
-      visitante: "Leones del Caracas",
-      marcador: "0 - 0",
-      estado: "Por iniciar",
-      fecha: new Date().toISOString()
-    };
+    const credencialesTexto = process.env.FIREBASE_SERVICE_ACCOUNT;
+    
+    // Diagnosticador 1: ¿La variable llega a Vercel?
+    if (!credencialesTexto) {
+      return res.status(500).json({
+        success: false,
+        error: "La variable FIREBASE_SERVICE_ACCOUNT no existe o está vacía en este entorno de Vercel."
+      });
+    }
 
-    const respuestaDb = await db.collection('partidos').add(partidoPrueba);
+    // Diagnosticador 2: ¿El formato del JSON es correcto?
+    let serviceAccount;
+    try {
+      serviceAccount = JSON.parse(credencialesTexto);
+    } catch (parseError) {
+      return res.status(500).json({
+        success: false,
+        error: "La variable existe en Vercel, pero no es un JSON válido. Hay un error de formato al copiarla.",
+        detalle: parseError.message
+      });
+    }
 
-    res.status(200).json({ 
-        success: true, 
-        message: "¡Proxy configurado con la nueva versión! Dato guardado.",
-        id_documento: respuestaDb.id 
+    // Inicialización segura de Firebase
+    if (getApps().length === 0) {
+      initializeApp({
+        credential: cert(serviceAccount)
+      });
+    }
+
+    // Conexión a la base de datos
+    const db = getFirestore();
+
+    return res.status(200).json({
+      success: true,
+      message: "¡Conexión totalmente exitosa! El proxy se comunicó correctamente con Firebase."
     });
 
-  } catch (error) {
-    res.status(500).json({ 
-        success: false, 
-        message: 'Error al conectar con la base de datos', 
-        detalles: error.message 
+  } catch (errorGlobal) {
+    return res.status(500).json({
+      success: false,
+      error: "Error inesperado en el servidor.",
+      detalle: errorGlobal.message
     });
   }
 };
