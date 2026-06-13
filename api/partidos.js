@@ -1,54 +1,43 @@
-const { initializeApp, getApps, cert } = require('firebase-admin/app');
+const axios = require('axios');
+const cheerio = require('cheerio');
 const { getFirestore } = require('firebase-admin/firestore');
 
 module.exports = async (req, res) => {
-  // Configuración de cabeceras de seguridad para que cualquier web pueda consultarlo
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+  
+  const db = getFirestore();
+  const fuentes = [
+    { nombre: 'Flashscore', url: 'https://www.flashscore.com/' },
+    { nombre: 'Besoccer', url: 'https://www.besoccer.com/' }
+  ];
 
   try {
-    // 1. Conexión a Firebase (ya sabemos que esto funciona perfecto)
-    const credencialesTexto = process.env.FIREBASE_SERVICE_ACCOUNT;
-    const serviceAccount = JSON.parse(credencialesTexto);
+    // 1. Intentamos obtener datos (aquí haremos la lógica de Scraping)
+    // Usaremos axios para descargar y cheerio para limpiar el contenido
+    const { data } = await axios.get(fuentes[0].url, { headers: { 'User-Agent': 'Mozilla/5.0' }});
+    const $ = cheerio.load(data);
+    
+    // Ejemplo: Extraer nombres de partidos (luego definiremos los selectores CSS exactos)
+    const partidosExtraidos = [];
+    $('.event__match').each((i, el) => {
+      partidosExtraidos.push({
+        local: $(el).find('.event__participant--home').text(),
+        visitante: $(el).find('.event__participant--away').text(),
+        resultado: $(el).find('.event__score').text()
+      });
+    });
 
-    if (getApps().length === 0) {
-      initializeApp({
-        credential: cert(serviceAccount)
+    // 2. Guardamos en tu Firebase (el "supositorio" de datos)
+    if (partidosExtraidos.length > 0) {
+      await db.collection('partidos_activos').doc('resumen_actual').set({
+        datos: partidosExtraidos,
+        ultimaActualizacion: new Date().toISOString()
       });
     }
 
-    const db = getFirestore();
+    res.status(200).json({ success: true, count: partidosExtraidos.length, data: partidosExtraidos });
 
-    // 2. Extraer los partidos de la base de datos
-    // Aquí le decimos que busque en la colección llamada 'partidos'
-    const snapshot = await db.collection('partidos').get();
-    const listaPartidos = [];
-
-    // Recorremos cada documento y lo guardamos en nuestra lista
-    snapshot.forEach((doc) => {
-      listaPartidos.push({
-        id: doc.id, // El código único del documento
-        ...doc.data() // Los datos del partido (local, visitante, etc.)
-      });
-    });
-
-    // 3. Enviar la lista de partidos a la pantalla
-    return res.status(200).json({
-      success: true,
-      cantidad: listaPartidos.length,
-      data: listaPartidos
-    });
-
-  } catch (errorGlobal) {
-    return res.status(500).json({
-      success: false,
-      error: "Error al intentar leer los partidos.",
-      detalle: errorGlobal.message
-    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Error al extraer datos", detalle: error.message });
   }
 };
