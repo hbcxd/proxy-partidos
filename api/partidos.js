@@ -1,23 +1,35 @@
 const admin = require('firebase-admin');
 
-// Llamamos a tu llave privada (Asegúrate de que el nombre del archivo sea exacto)
-const serviceAccount = require('../firebase-key.json');
-
-// Iniciamos la conexión con Firebase de manera segura
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
-}
-
-const db = admin.firestore();
-
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
   try {
-    // Aquí es donde uniremos el Scraper más adelante.
-    // Por ahora, vamos a insertar un partido de prueba para confirmar la conexión.
+    // Verificamos e inicializamos Firebase de manera segura
+    if (!admin.apps.length) {
+      let serviceAccount;
+      
+      // Si estamos en Vercel, usamos la variable. Si no, usamos el archivo local.
+      if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+        try {
+          serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+        } catch (parseError) {
+          throw new Error("La variable FIREBASE_SERVICE_ACCOUNT tiene un error de formato. Revisa que copiaste el JSON completo.");
+        }
+      } else {
+        try {
+          serviceAccount = require('../firebase-key.json');
+        } catch (fileError) {
+          throw new Error("No se encontró la variable de entorno en Vercel ni el archivo local.");
+        }
+      }
+
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
+    }
+
+    const db = admin.firestore();
+
     const partidoPrueba = {
       local: "Magallanes",
       visitante: "Leones",
@@ -25,20 +37,20 @@ module.exports = async (req, res) => {
       fecha: new Date().toISOString()
     };
 
-    // Apuntamos a tu colección "partidos" y añadimos el documento
     const respuestaDb = await db.collection('partidos').add(partidoPrueba);
 
     res.status(200).json({ 
         success: true, 
-        message: "¡Conexión exitosa! Dato guardado en Firestore.",
+        message: "¡Conexión exitosa y segura! Dato guardado en Firestore.",
         id_documento: respuestaDb.id 
     });
 
   } catch (error) {
+    // Si algo sale mal, ahora lo veremos clarito en la web
     res.status(500).json({ 
         success: false, 
-        message: 'Error al conectar con la base de datos', 
-        error: error.message 
+        message: 'Error interno de configuración', 
+        detalles: error.message 
     });
   }
 };
