@@ -1,9 +1,8 @@
-// Forzando actualizacion para produccion
 const { initializeApp, getApps, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 
 module.exports = async (req, res) => {
-  // Configuración de cabeceras seguras
+  // Configuración de cabeceras de seguridad para que cualquier web pueda consultarlo
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -13,47 +12,42 @@ module.exports = async (req, res) => {
   }
 
   try {
+    // 1. Conexión a Firebase (ya sabemos que esto funciona perfecto)
     const credencialesTexto = process.env.FIREBASE_SERVICE_ACCOUNT;
-    
-    // Diagnosticador 1: ¿La variable llega a Vercel?
-    if (!credencialesTexto) {
-      return res.status(500).json({
-        success: false,
-        error: "La variable FIREBASE_SERVICE_ACCOUNT no existe o está vacía en este entorno de Vercel."
-      });
-    }
+    const serviceAccount = JSON.parse(credencialesTexto);
 
-    // Diagnosticador 2: ¿El formato del JSON es correcto?
-    let serviceAccount;
-    try {
-      serviceAccount = JSON.parse(credencialesTexto);
-    } catch (parseError) {
-      return res.status(500).json({
-        success: false,
-        error: "La variable existe en Vercel, pero no es un JSON válido. Hay un error de formato al copiarla.",
-        detalle: parseError.message
-      });
-    }
-
-    // Inicialización segura de Firebase
     if (getApps().length === 0) {
       initializeApp({
         credential: cert(serviceAccount)
       });
     }
 
-    // Conexión a la base de datos
     const db = getFirestore();
 
+    // 2. Extraer los partidos de la base de datos
+    // Aquí le decimos que busque en la colección llamada 'partidos'
+    const snapshot = await db.collection('partidos').get();
+    const listaPartidos = [];
+
+    // Recorremos cada documento y lo guardamos en nuestra lista
+    snapshot.forEach((doc) => {
+      listaPartidos.push({
+        id: doc.id, // El código único del documento
+        ...doc.data() // Los datos del partido (local, visitante, etc.)
+      });
+    });
+
+    // 3. Enviar la lista de partidos a la pantalla
     return res.status(200).json({
       success: true,
-      message: "¡Conexión totalmente exitosa! El proxy se comunicó correctamente con Firebase."
+      cantidad: listaPartidos.length,
+      data: listaPartidos
     });
 
   } catch (errorGlobal) {
     return res.status(500).json({
       success: false,
-      error: "Error inesperado en el servidor.",
+      error: "Error al intentar leer los partidos.",
       detalle: errorGlobal.message
     });
   }
