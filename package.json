@@ -1,0 +1,11 @@
+{
+  "name": "proxy-futbol",
+  "version": "1.0.0",
+  "description": "Proxy para datos de futbol",
+  "main": "api/partidos.js",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12",
+    "cors": "^2.8.5"
+  }
+}
